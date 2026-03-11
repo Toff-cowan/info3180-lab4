@@ -1,11 +1,11 @@
 import os
 from app import app, db, login_manager
-from flask import render_template, request, redirect, url_for, flash, session, abort
+from flask import render_template, request, redirect, url_for, flash, session, abort, send_from_directory
 from flask_login import login_user, logout_user, current_user, login_required
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash
 from app.models import UserProfile
-from app.forms import LoginForm
+from app.forms import LoginForm, UploadForm
 
 
 ###
@@ -25,17 +25,19 @@ def about():
 
 
 @app.route('/upload', methods=['POST', 'GET'])
+@login_required
 def upload():
-    # Instantiate your form class
+    form = UploadForm()
 
-    # Validate file upload on submit
     if form.validate_on_submit():
-        # Get file data and save to your uploads folder
-
+        file = form.upload.data
+        filename = secure_filename(file.filename)
+        upload_folder = app.config['UPLOAD_FOLDER']
+        file.save(os.path.join(upload_folder, filename))
         flash('File Saved', 'success')
-        return redirect(url_for('home')) # Update this to redirect the user to a route that displays all uploaded image files
+        return redirect(url_for('home'))
 
-    return render_template('upload.html')
+    return render_template('upload.html', form=form)
 
 
 @app.route('/login', methods=['POST', 'GET'])
@@ -65,6 +67,43 @@ def login():
 @login_manager.user_loader
 def load_user(id):
     return db.session.execute(db.select(UserProfile).filter_by(id=id)).scalar()
+
+###
+# Helpers and routes for uploaded files.
+###
+
+ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+
+
+def get_uploaded_images():
+    """Return a list of image filenames in the uploads folder."""
+    upload_path = os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER'])
+    if not os.path.isdir(upload_path):
+        return []
+    filenames = []
+    for filename in os.listdir(upload_path):
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        if ext in ALLOWED_IMAGE_EXTENSIONS:
+            filenames.append(filename)
+    return filenames
+
+
+@app.route('/uploads/<filename>')
+def get_image(filename):
+    """Serve a specific image from the uploads folder."""
+    return send_from_directory(
+        os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER']),
+        filename
+    )
+
+
+@app.route('/files')
+@login_required
+def files():
+    """List uploaded image files in a grid."""
+    image_filenames = get_uploaded_images()
+    return render_template('files.html', image_filenames=image_filenames)
+
 
 ###
 # The functions below should be applicable to all Flask apps.
